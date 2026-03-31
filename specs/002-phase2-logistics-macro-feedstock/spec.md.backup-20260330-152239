@@ -1,0 +1,100 @@
+# Feature Specification: Phase 2 — Logistics, Macro & Feedstock
+
+**Feature Branch**: `002-phase2-logistics-macro-feedstock`  
+**Created**: 2026-03-30  
+**Status**: Draft  
+**Input**: User description: "Read plan.md and create specification for Phase 2 — Logistics, Macro & Feedstock (Week 2) detailed oriented senior developer"
+
+## User Scenarios & Testing *(mandatory)*
+
+### User Story 1 - Logistics and macro feed ingestion (Priority: P1)
+
+Platform operators need the system to collect freight and macroeconomic inputs so downstream forecasting can use the latest logistics and feedstock signals.
+
+**Why this priority**: Accurate freight, FX, oil, and electricity data are foundational for price forecasting and must be ingested reliably before any model or alerting work.
+
+**Independent Test**: Run the ingestion pipeline and verify that new freight and macro records are written into the repository with source metadata and normalized values.
+
+**Acceptance Scenarios**:
+
+1. **Given** the ingestion pipeline is scheduled, **When** new CCFI Mediterranean freight rates are available, **Then** the system stores them in `freight_rates` with source origin, timestamp, and value.
+2. **Given** the ingestion pipeline is scheduled, **When** new Drewry WCI freight data is available, **Then** the system stores it in `freight_rates` with correct route and source metadata.
+3. **Given** macro sources are available, **When** daily FX, oil, and electricity feed records arrive, **Then** the system stores them in the shared repository format and marks them as live.
+
+---
+
+### User Story 2 - Source health and fallback handling (Priority: P2)
+
+Data reliability engineers need the system to detect stale or dead sources and automatically switch to fallback data where appropriate to keep the pipeline usable.
+
+**Why this priority**: Without fallback and confidence handling, the model pipeline can consume stale or unavailable data and produce misleading forecasts.
+
+**Independent Test**: Simulate a primary source outage and verify that fallback activation, stale/dead state tagging, and confidence metadata are recorded correctly.
+
+**Acceptance Scenarios**:
+
+1. **Given** the primary freight source is unavailable, **When** the fetch pipeline runs, **Then** the system uses fallback data if available and records the fallback activation state.
+2. **Given** a source has not published fresh data within the expected window, **When** the system evaluates source health, **Then** the source is marked stale or dead and confidence is reduced.
+3. **Given** all alternative sources are stale, **When** the pipeline runs, **Then** the last known value stays available with explicit stale metadata rather than being treated as live.
+
+---
+
+### User Story 3 - Unified repository integration (Priority: P3)
+
+Developers building downstream agents need logistics and macro feeds to arrive through a common fetch and normalization pipeline so consumers can read them without source-specific logic.
+
+**Why this priority**: A unified pipeline reduces maintenance, supports new downstream features, and enables consistent source health semantics across all data feeds.
+
+**Independent Test**: Execute the unified fetch pipeline against sample freight and macro sources and confirm the results are stored with normalized fields and health metadata in the repository.
+
+**Acceptance Scenarios**:
+
+1. **Given** new raw data is fetched from a logistics or macro source, **When** the pipeline runs, **Then** the data is normalized and persisted using consistent repository conventions.
+2. **Given** raw feed records from different sources contain different fields, **When** the normalizer processes them, **Then** the output schema is consistent for downstream consumers.
+
+---
+
+### Edge Cases
+
+- Primary and fallback freight sources both fail for a given day; the pipeline must preserve the last known good value with stale metadata instead of discarding the series.
+- Macro feed inputs arrive partially (for example, FX rates are available but oil spot data is missing); the system must ingest available data and mark missing pieces separately.
+- A source publishes late or out of order data; the system must avoid overwriting newer live records with older stale records.
+- Currency units differ across sources; the normalizer must preserve source currency and standardize values consistently before repository persistence.
+- Source health must not flip from stale back to live incorrectly when only fallback data is present; live state requires fresh primary or validated fallback data.
+
+## Requirements *(mandatory)*
+
+### Functional Requirements
+
+- **FR-001**: System MUST ingest daily freight rates from CCFI Mediterranean and Drewry WCI sources into the freight repository.
+- **FR-002**: System MUST ingest daily macro feeds for USD/INR, USD/CNY, oil spot, and electricity into the macro feed repository.
+- **FR-003**: System MUST normalize all incoming freight and macro feeds to a shared repository schema with consistent metadata for source, timestamp, value, and currency.
+- **FR-004**: System MUST detect and record source health states as live, stale, or dead based on recency, successful fetch, and validation rules.
+- **FR-005**: System MUST activate fallback logic when a primary source becomes stale or unavailable and preserve fallback provenance metadata.
+- **FR-006**: System MUST compute feed confidence state for each persisted record and expose whether the value is live, stale, or fallback-derived.
+- **FR-007**: System MUST integrate logistics and macro ingestion into the existing unified fetch and normalization pipeline so downstream consumers can use a common repository schema.
+- **FR-008**: System MUST preserve audit metadata for each feed record, including source name, published timestamp, ingestion timestamp, and fallback status.
+
+### Key Entities *(include if feature involves data)*
+
+- **FreightRate**: Represents a daily logistics cost observation from CCFI Mediterranean or Drewry WCI, including route, currency, source, timestamp, and normalized value.
+- **MacroFeed**: Represents a daily macroeconomic input such as FX rates, oil spot prices, or electricity rates, including feed type, currency, source, timestamp, and normalized value.
+- **FeedSourceState**: Represents the health and confidence of a data source, including source name, status (`live`, `stale`, `dead`), last fresh update, and fallback activation state.
+- **UnifiedFetchPipeline**: Represents the ingestion flow that ingests raw logistics and macro feeds, normalizes them, and persists them into the shared repository schema.
+
+## Success Criteria *(mandatory)*
+
+### Measurable Outcomes
+
+- **SC-001**: At least 95% of daily logistics and macro feed records are ingested and normalized successfully in the first production run.
+- **SC-002**: Live source records are identified correctly and stale or dead sources are tagged within one pipeline execution cycle.
+- **SC-003**: When a primary source fails, fallback logic activates in 100% of available fallback scenarios and records fallback provenance.
+- **SC-004**: Downstream consumers can read logistics and macro feed data from the unified repository schema without needing source-specific parsing or normalization.
+
+## Assumptions
+
+- Existing Phase 1 ingestion infrastructure and repository conventions are available and will be extended for logistics and macro feeds.
+- The feature is focused on backend ingestion, normalization, and health/confidence handling; no user-facing UI changes are required in this phase.
+- Source credentials, feed formats, and access policies for CCFI, Drewry, FX, oil, and electricity sources are available or will be provisioned separately.
+- Currency normalization is expected to happen as part of the feed normalization process, preserving consistent units for downstream consumers.
+- Downstream model and alerting logic will consume these records in later phases; this phase only guarantees reliable repository ingestion and metadata.
