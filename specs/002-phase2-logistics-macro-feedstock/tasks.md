@@ -70,7 +70,7 @@ description: "Task list for Phase 2 — Logistics, Macro & Feedstock implementat
 - [X] T015 [P] [US1] Create integration test in `tests/integration/test_macro_ingestion.py` that executes macro ingestion for fx_usd_inr, fx_usd_cny, oil_spot, electricity and verifies price_history contains records with source_type=macro and normalized_usd values
 - [X] T016 [P] [US1] Create unit test in `tests/unit/test_normalizer_freight.py` testing `normalize_freight()` with sample CCFI and Drewry payloads, validating route extraction, currency conversion, and quality flag assignment
 - [X] T051 [P] [US1] Create integration test in `tests/integration/test_ingestion_quality.py` that validates at least 95% of sample daily freight and macro records are ingested and normalized successfully.
-- [ ] T052 [P] [US2] Create a timezone validation test in `tests/integration/test_timezone_alignment.py` that verifies ingestion schedules and health evaluation windows use Africa/Cairo timezone.
+- [X] T052 [P] [US2] Create a timezone validation test in `tests/integration/test_timezone_alignment.py` that verifies ingestion schedules and health evaluation windows use Africa/Cairo timezone.
 
 ### Implementation for User Story 1
 
@@ -153,7 +153,6 @@ description: "Task list for Phase 2 — Logistics, Macro & Feedstock implementat
 - [X] T048 [P] Code cleanup: remove debug logging, ensure consistent naming conventions, add type hints to all function signatures in agents/ and models/
 - [X] T049 [P] Performance review in `tests/performance/test_ingestion_performance.py`: benchmark normalization speed for bulk records, verify source health queries are indexed efficiently, confirm persistence latency is acceptable
 - [X] T050 Add configuration validation in `config.py`: verify all required ingestion sources are configured with credentials and endpoints before pipeline execution
-- [X] T052 [P] [US2] Create a timezone validation test in `tests/integration/test_timezone_alignment.py` that verifies ingestion schedules and health evaluation windows use Africa/Cairo timezone.
 
 ---
 
@@ -291,23 +290,23 @@ With multiple developers:
 ### Independent Test Criteria for Each User Story
 
 **User Story 1 - Logistics and macro ingestion**:
-- [ ] Run `pytest tests/integration/test_freight_ingestion.py -v` → All tests pass
-- [ ] Run `pytest tests/integration/test_macro_ingestion.py -v` → All tests pass
-- [ ] Query `SELECT COUNT(*) FROM freight_rates WHERE source_name IN ('ccfi_med', 'drewry_wci')` → Count > 0
-- [ ] Query `SELECT COUNT(*) FROM price_history WHERE source_type = 'macro'` → Count > 0
-- [ ] Verify source_health table shows all sources with status recorded
+- [X] Run `pytest tests/integration/test_freight_ingestion.py -v` → All tests pass
+- [X] Run `pytest tests/integration/test_macro_ingestion.py -v` → All tests pass
+- [X] Query `SELECT COUNT(*) FROM freight_rates WHERE source_name IN ('ccfi_med', 'drewry_wci')` → Count > 0
+- [X] Query `SELECT COUNT(*) FROM price_history WHERE source_type = 'macro'` → Count > 0
+- [X] Verify source_health table shows all sources with status recorded
 
 **User Story 2 - Source health and fallback handling**:
-- [ ] Run `pytest tests/integration/test_fallback_activation.py -v` → All tests pass
-- [ ] Simulate source outage: Set source to unavailable, run ingestion, verify fallback_active=true
-- [ ] Query records with fallback flag: `SELECT COUNT(*) FROM freight_rates WHERE quality_flags->>'fallback' = 'true'` → Count > 0
-- [ ] Verify stale detection: records >48 hours old marked with stale=true
+- [X] Run `pytest tests/integration/test_fallback_activation.py -v` → All tests pass
+- [X] Simulate source outage: Set source to unavailable, run ingestion, verify fallback_active=true
+- [X] Query records with fallback flag: `SELECT COUNT(*) FROM freight_rates WHERE quality_flags->>'fallback' = 'true'` → Count > 0
+- [X] Verify stale detection: records >48 hours old marked with stale=true
 
 **User Story 3 - Unified repository integration**:
-- [ ] Run `pytest tests/integration/test_unified_pipeline.py -v` → All tests pass
-- [ ] Execute orchestrator: `python agents/unified_ingestion_orchestrator.py` → Reports success for all sources
-- [ ] Query unified interface: `db.get_normalized_records(source_types=['freight', 'macro'])` → Returns records from both tables
-- [ ] Verify schema consistency across freight_rates and price_history records
+- [X] Run `pytest tests/integration/test_unified_pipeline.py -v` → All tests pass
+- [X] Execute orchestrator: `python agents/unified_ingestion_orchestrator.py` → Reports success for all sources
+- [X] Query unified interface: `db.get_normalized_records(source_types=['freight', 'macro'])` → Returns records from both tables
+- [X] Verify schema consistency across freight_rates and price_history records
 
 ---
 

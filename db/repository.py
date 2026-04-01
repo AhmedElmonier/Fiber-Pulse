@@ -16,18 +16,26 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from db.schema import (
     Base,
+    AlertLogDB,
+    BotCommandLogDB,
     CurrencyConversion,
+    ForecastDB,
     FreightRate,
+    HistoricalOnboardingLogDB,
     IngestionSource,
     MacroFeedRecord,
     PriceHistory,
+    SentimentEvent,
     SourceHealth,
 )
 from models.currency_conversion import CurrencyConversionRecord
+from models.forecast import Forecast
 from models.freight_rate import FreightRate as FreightRateModel
+from models.historical_onboarding_log import HistoricalOnboardingLog
 from models.ingestion_source import IngestionSource as IngestionSourceModel
 from models.macro_feed_record import MacroFeedRecord as MacroFeedRecordModel
 from models.price_history import PriceHistoryRecord, SourceType
+from models.sentiment_event import SentimentEvent as SentimentEventModel, SentimentLabel
 from models.source_health import HealthStatus, SourceHealthRecord
 
 if TYPE_CHECKING:
@@ -241,7 +249,7 @@ class Repository:
         """
         async with self.async_session() as session:
             results = []
-            
+
             names_filter = source_names or ([source_name] if source_name else None)
 
             # 1. Query PriceHistory (spot, future, macro if in this table)
@@ -254,10 +262,14 @@ class Repository:
                 if end_time:
                     query = query.where(PriceHistory.timestamp_utc <= end_time)
                 if source_types:
-                    relevant_types = [SourceType[t.upper()] for t in source_types if t in ["spot", "future", "macro"]]
+                    relevant_types = [
+                        SourceType[t.upper()]
+                        for t in source_types
+                        if t in ["spot", "future", "macro"]
+                    ]
                     if relevant_types:
                         query = query.where(PriceHistory.source_type.in_(relevant_types))
-                
+
                 query = query.order_by(PriceHistory.timestamp_utc.desc()).limit(limit)
                 res = await session.execute(query)
                 results.extend(res.scalars().all())
@@ -271,7 +283,7 @@ class Repository:
                     query = query.where(FreightRate.timestamp_utc >= start_time)
                 if end_time:
                     query = query.where(FreightRate.timestamp_utc <= end_time)
-                
+
                 query = query.order_by(FreightRate.timestamp_utc.desc()).limit(limit)
                 res = await session.execute(query)
                 results.extend(res.scalars().all())
@@ -285,7 +297,7 @@ class Repository:
                     query = query.where(MacroFeedRecord.timestamp_utc >= start_time)
                 if end_time:
                     query = query.where(MacroFeedRecord.timestamp_utc <= end_time)
-                
+
                 query = query.order_by(MacroFeedRecord.timestamp_utc.desc()).limit(limit)
                 res = await session.execute(query)
                 results.extend(res.scalars().all())
@@ -294,11 +306,7 @@ class Repository:
             results.sort(key=lambda x: x.timestamp_utc, reverse=True)
             return results[:limit]
 
-    async def get_records_by_health_status(
-        self,
-        status: str,
-        limit: int = 100
-    ) -> list[Any]:
+    async def get_records_by_health_status(self, status: str, limit: int = 100) -> list[Any]:
         """Query records filtered by the health status of their source.
 
         Args:
@@ -313,10 +321,10 @@ class Repository:
             health_query = select(SourceHealth).where(SourceHealth.status == HealthStatus(status))
             health_res = await session.execute(health_query)
             source_names = [h.source_name for h in health_res.scalars().all()]
-            
+
             if not source_names:
                 return []
-                
+
             # Then get records for these sources
             return await self.get_normalized_records(source_names=source_names, limit=limit)
 
@@ -447,9 +455,7 @@ class Repository:
             )
             result = await session.execute(stmt)
             await session.commit()
-            query = select(IngestionSource).where(
-                IngestionSource.source_name == source.source_name
-            )
+            query = select(IngestionSource).where(IngestionSource.source_name == source.source_name)
             fetched = await session.execute(query)
             return fetched.scalar_one()
 
@@ -479,7 +485,9 @@ class Repository:
             result = await session.execute(query)
             return list(result.scalars().all())
 
-    async def insert_currency_conversion(self, record: CurrencyConversionRecord) -> CurrencyConversion:
+    async def insert_currency_conversion(
+        self, record: CurrencyConversionRecord
+    ) -> CurrencyConversion:
         """Insert a currency conversion rate record.
 
         Args:
@@ -521,6 +529,183 @@ class Repository:
             result = await session.execute(query)
             return result.scalar_one_or_none()
 
+    async def insert_sentiment_event(self, event: SentimentEventModel) -> SentimentEvent:
+        """Insert a sentiment event record.
+
+        Args:
+            event: The sentiment event to insert.
+
+        Returns:
+            The inserted database row.
+        """
+        async with self.async_session() as session:
+            db_record = SentimentEvent(
+                headline=event.headline,
+                source_name=event.source_name,
+                timestamp_utc=event.timestamp_utc,
+                sentiment_score=event.sentiment_score,
+                confidence=event.confidence,
+                engine_version=event.engine_version,
+                event_metadata=event.metadata,
+            )
+            session.add(db_record)
+            await session.commit()
+            await session.refresh(db_record)
+            return db_record
+
+    async def get_sentiment_events(
+        self,
+        source_name: str | None = None,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
+        sentiment_label: str | None = None,
+        limit: int = 100,
+    ) -> list[SentimentEvent]:
+        """Query sentiment events with optional filters.
+
+        Args:
+            source_name: Filter by source name.
+            start_time: Filter events after this time.
+            end_time: Filter events before this time.
+            sentiment_label: Filter by sentiment (bullish, bearish, neutral).
+            limit: Maximum number of records to return.
+
+        Returns:
+            List of matching sentiment event records.
+        """
+        async with self.async_session() as session:
+            query = select(SentimentEvent)
+
+            if source_name:
+                query = query.where(SentimentEvent.source_name == source_name)
+            if start_time:
+                query = query.where(SentimentEvent.timestamp_utc >= start_time)
+            if end_time:
+                query = query.where(SentimentEvent.timestamp_utc <= end_time)
+            if sentiment_label:
+                try:
+                    label_enum = SentimentLabel(sentiment_label)
+                except ValueError:
+                    label_enum = None
+                if label_enum is not None:
+                    query = query.where(SentimentEvent.sentiment_score == label_enum)
+
+            query = query.order_by(SentimentEvent.timestamp_utc.desc()).limit(limit)
+            result = await session.execute(query)
+            return list(result.scalars().all())
+
+    async def insert_forecast(self, forecast: Forecast) -> ForecastDB:
+        """Insert a forecast record.
+
+        Args:
+            forecast: The forecast to insert.
+
+        Returns:
+            The inserted database row.
+        """
+        async with self.async_session() as session:
+            db_record = ForecastDB(
+                target_source=forecast.target_source,
+                timestamp_utc=forecast.timestamp_utc,
+                target_timestamp_utc=forecast.target_timestamp_utc,
+                horizon_hours=forecast.horizon_hours,
+                predicted_value=forecast.predicted_value,
+                lower_bound=forecast.lower_bound,
+                upper_bound=forecast.upper_bound,
+                confidence_level=forecast.confidence_level,
+                model_version=forecast.model_version,
+                is_decayed=forecast.is_decayed,
+            )
+            session.add(db_record)
+            await session.commit()
+            await session.refresh(db_record)
+            return db_record
+
+    async def get_forecasts(
+        self,
+        target_source: str | None = None,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
+        limit: int = 100,
+    ) -> list[ForecastDB]:
+        """Query forecasts with optional filters.
+
+        Args:
+            target_source: Filter by target source name.
+            start_time: Filter forecasts generated after this time.
+            end_time: Filter forecasts generated before this time.
+            limit: Maximum number of records to return.
+
+        Returns:
+            List of matching forecast records.
+        """
+        async with self.async_session() as session:
+            query = select(ForecastDB)
+
+            if target_source:
+                query = query.where(ForecastDB.target_source == target_source)
+            if start_time:
+                query = query.where(ForecastDB.timestamp_utc >= start_time)
+            if end_time:
+                query = query.where(ForecastDB.timestamp_utc <= end_time)
+
+            query = query.order_by(ForecastDB.timestamp_utc.desc()).limit(limit)
+            result = await session.execute(query)
+            return list(result.scalars().all())
+
+    async def insert_onboarding_log(
+        self, log: HistoricalOnboardingLog
+    ) -> HistoricalOnboardingLogDB:
+        """Insert a historical onboarding log entry.
+
+        Args:
+            log: The onboarding log entry to insert.
+
+        Returns:
+            The inserted database row.
+        """
+        async with self.async_session() as session:
+            db_record = HistoricalOnboardingLogDB(
+                file_name=log.file_name,
+                timestamp_utc=log.timestamp_utc,
+                record_count=log.record_count,
+                status=log.status.value,
+                error_summary=log.error_summary,
+                onboarding_metadata=log.metadata,
+            )
+            session.add(db_record)
+            await session.commit()
+            await session.refresh(db_record)
+            return db_record
+
+    async def get_onboarding_logs(
+        self,
+        file_name: str | None = None,
+        status: str | None = None,
+        limit: int = 100,
+    ) -> list[HistoricalOnboardingLogDB]:
+        """Query onboarding logs with optional filters.
+
+        Args:
+            file_name: Filter by file name.
+            status: Filter by status (success, failed, partial).
+            limit: Maximum number of records to return.
+
+        Returns:
+            List of matching onboarding log records.
+        """
+        async with self.async_session() as session:
+            query = select(HistoricalOnboardingLogDB)
+
+            if file_name:
+                query = query.where(HistoricalOnboardingLogDB.file_name == file_name)
+            if status:
+                query = query.where(HistoricalOnboardingLogDB.status == status)
+
+            query = query.order_by(HistoricalOnboardingLogDB.timestamp_utc.desc()).limit(limit)
+            result = await session.execute(query)
+            return list(result.scalars().all())
+
     async def check_price_duplicate(
         self, source_name: str, timestamp_utc: datetime, raw_price: float
     ) -> bool:
@@ -542,6 +727,168 @@ class Repository:
             )
             result = await session.execute(query)
             return result.scalar_one_or_none() is not None
+
+    async def insert_alert_log(
+        self,
+        instrument_name: str,
+        trigger_reason: str,
+        target_chat_id: int,
+        message_payload: dict[str, Any],
+        status: str,
+    ) -> AlertLogDB:
+        """Insert an alert log entry.
+
+        Args:
+            instrument_name: Name of instrument.
+            trigger_reason: Reason for alert.
+            target_chat_id: Telegram Chat ID.
+            message_payload: Message content.
+            status: 'success' or 'failed'.
+
+        Returns:
+            The inserted database row.
+        """
+        async with self.async_session() as session:
+            db_record = AlertLogDB(
+                instrument_name=instrument_name,
+                trigger_reason=trigger_reason,
+                target_chat_id=target_chat_id,
+                message_payload=message_payload,
+                status=status,
+            )
+            session.add(db_record)
+            await session.commit()
+            await session.refresh(db_record)
+            return db_record
+
+    async def get_alert_logs(
+        self,
+        instrument_name: str | None = None,
+        start_time: datetime | None = None,
+        limit: int = 100,
+    ) -> list[AlertLogDB]:
+        """Query alert logs with optional filters.
+
+        Args:
+            instrument_name: Filter by instrument.
+            start_time: Filter alerts after this time.
+            limit: Maximum records.
+
+        Returns:
+            List of matching alert logs.
+        """
+        async with self.async_session() as session:
+            query = select(AlertLogDB)
+
+            if instrument_name:
+                query = query.where(AlertLogDB.instrument_name == instrument_name)
+            if start_time:
+                query = query.where(AlertLogDB.timestamp >= start_time)
+
+            query = query.order_by(AlertLogDB.timestamp.desc()).limit(limit)
+            result = await session.execute(query)
+            return list(result.scalars().all())
+
+    async def insert_bot_command_log(
+        self,
+        user_id: int,
+        command_name: str,
+        arguments: str | None = None,
+        response_time_ms: int | None = None,
+    ) -> BotCommandLogDB:
+        """Insert a bot command log entry.
+
+        Args:
+            user_id: Telegram User ID.
+            command_name: Command invoked.
+            arguments: Optional arguments.
+            response_time_ms: Response time in ms.
+
+        Returns:
+            The inserted database row.
+        """
+        async with self.async_session() as session:
+            db_record = BotCommandLogDB(
+                user_id=user_id,
+                command_name=command_name,
+                arguments=arguments,
+                response_time_ms=response_time_ms,
+            )
+            session.add(db_record)
+            await session.commit()
+            await session.refresh(db_record)
+            return db_record
+
+    async def get_command_logs(
+        self,
+        user_id: int | None = None,
+        limit: int = 100,
+    ) -> list[BotCommandLogDB]:
+        """Query bot command logs.
+
+        Args:
+            user_id: Filter by user.
+            limit: Maximum records.
+
+        Returns:
+            List of matching command logs.
+        """
+        async with self.async_session() as session:
+            query = select(BotCommandLogDB)
+
+            if user_id:
+                query = query.where(BotCommandLogDB.user_id == user_id)
+
+            query = query.order_by(BotCommandLogDB.timestamp.desc()).limit(limit)
+            result = await session.execute(query)
+            return list(result.scalars().all())
+
+    async def get_command_response_stats(
+        self,
+        user_id: int | None = None,
+        limit: int = 200,
+    ) -> dict[str, Any]:
+        """Compute aggregate response-time statistics for SC-001 validation.
+
+        Args:
+            user_id: Filter by user.
+            limit: Maximum records to include in stats.
+
+        Returns:
+            Dict with count, avg_ms, max_ms, p95_ms, and pct_under_2s.
+        """
+        from statistics import mean, quantiles
+
+        logs = await self.get_command_logs(user_id=user_id, limit=limit)
+        times = [log.response_time_ms for log in logs if log.response_time_ms is not None]
+
+        if not times:
+            return {
+                "count": 0,
+                "avg_ms": None,
+                "max_ms": None,
+                "p95_ms": None,
+                "pct_under_2s": None,
+            }
+
+        under_2s = sum(1 for t in times if t < 2000)
+        p95 = quantiles(times, n=20)[18] if len(times) >= 2 else times[0]
+
+        return {
+            "count": len(times),
+            "avg_ms": round(mean(times), 1),
+            "max_ms": max(times),
+            "p95_ms": round(p95, 1),
+            "pct_under_2s": round(under_2s / len(times) * 100, 1),
+        }
+
+    async def __aenter__(self) -> Repository:
+        """Enter async context manager."""
+        return self
+
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        """Exit async context manager, disposing the engine."""
+        await self.close()
 
     async def close(self) -> None:
         """Close the database connection."""

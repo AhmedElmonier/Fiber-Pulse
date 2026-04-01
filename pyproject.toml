@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "FiberPulse - Cotton market price ingestion and forecasting platform"
 authors = ["FiberPulse Team"]
 readme = "README.md"
-packages = [{include = "agents"}, {include = "db"}, {include = "models"}, {include = "utils"}]
+packages = [{include = "agents"}, {include = "db"}, {include = "models"}, {include = "utils"}, {include = "nlp"}]
 
 [tool.poetry.dependencies]
 python = "^3.12"
@@ -13,6 +13,14 @@ sqlalchemy = "^2.0.48"
 asyncpg = "^0.31.0"
 python-dotenv = "^1.2.2"
 psycopg2-binary = "^2.9.11"
+xgboost = "^2.1.0"
+scikit-learn = "^1.5.0"
+nltk = "^3.9.3"
+textblob = "^0.18.0"
+click = "^8.1.7"
+python-telegram-bot = "^22.0"
+matplotlib = "^3.9.0"
+apscheduler = "^3.10.4"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^9.0.2"

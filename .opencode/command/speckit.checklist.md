@@ -171,10 +171,8 @@ You **MUST** consider the user input before proceeding (if not empty).
    - Include resilience/rollback when state mutation occurs: "Are rollback requirements defined for migration failures? [Gap]"
 
    **Traceability Requirements**:
-   - Recommended: ≥80% of items SHOULD include at least one traceability reference when an ID system exists.
-   - If no ID system exists, treat traceability as a best-effort target (e.g. 50% or as many as practicable) and document the exception.
-   - Each item should reference: spec section `[Spec §X.Y]`, or use markers: `[Gap]`, `[Ambiguity]`, `[Conflict]`, `[Assumption]`
-   - If no ID system exists: "Is a requirement & acceptance criteria ID scheme established? [Traceability]"
+   - If a requirements ID scheme exists, ≥80% of items SHOULD include at least one traceability reference (spec section `[Spec §X.Y]` or markers `[Gap]`, `[Ambiguity]`, `[Conflict]`, `[Assumption]`)
+   - If no ID scheme exists, state that an ID scheme must be established or document the rationale and traceability alternative
 
    **Surface & Resolve Issues** (Requirements Quality Problems):
    Ask questions about the requirements themselves:

@@ -1,0 +1,13 @@
+{
+  "file_format": "CSV",
+  "columns": {
+    "date": "ISO-8601 string",
+    "source": "string (e.g. cai_spot, mcx_futures)",
+    "price": "float",
+    "currency": "string (e.g. INR, USD)"
+  },
+  "validation": {
+    "required": ["date", "source", "price", "currency"],
+    "positive_price": true
+  }
+}

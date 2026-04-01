@@ -113,13 +113,31 @@ fiberpulse/
 - Model promotion is gated: TFT only goes live if it beats the baseline by 15% MAE improvement.
 - Confidence decay logic ensures stale data does not produce overconfident forecasts.
 
+## Telegram Bot Commands
+
+The bot is restricted to whitelisted Telegram User IDs (configured via `TELEGRAM_WHITELIST`).
+
+| Command | Description |
+|---------|-------------|
+| `/start` | Welcome message and bot introduction |
+| `/help` | List all available commands |
+| `/status` | Bot health check (uptime, DB, scheduler) |
+| `/buy` | AI-driven buy/sell/hold signal with confidence score |
+| `/outlook` | 30-day market forecast with fan chart |
+| `/freight` | Current freight rates with bar chart |
+| `/history` | 30-day price history table with trend chart |
+
+**Automated features:**
+- **Volatility alerts**: Notifications when prices move >3% in 24h (suppressed to max 1/hr per instrument).
+- **Scheduled reports**: Market pulse delivered 4x daily at 09:00, 12:00, 15:00, 18:00 Cairo time.
+
 ## Delivery Roadmap
 
-- **Phase 1**: Foundation and data ingestion
-- **Phase 2**: Freight, macro, and fallback handling
-- **Phase 3**: Baseline forecasting and sentiment
-- **Phase 4**: Telegram interface and alerting
-- **Phase 5**: TFT upgrade, promotion gate, and production hardening
+- [x] **Phase 1**: Foundation and data ingestion
+- [x] **Phase 2**: Freight, macro, and fallback handling
+- [x] **Phase 3**: Baseline forecasting and sentiment
+- [ ] **Phase 4**: Telegram interface and alerting (In Progress)
+- [ ] **Phase 5**: TFT upgrade, promotion gate, and production hardening
 
 For full phase details, see `plan.md`.
 
