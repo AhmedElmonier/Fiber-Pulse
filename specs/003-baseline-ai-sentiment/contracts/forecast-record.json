@@ -1,0 +1,10 @@
+{
+  "target_source": "string",
+  "horizon_hours": "integer",
+  "predicted_value": "float",
+  "lower_bound": "float",
+  "upper_bound": "float",
+  "confidence_level": "float (e.g. 0.95)",
+  "model_version": "string",
+  "is_decayed": "boolean"
+}

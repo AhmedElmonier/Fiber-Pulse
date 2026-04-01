@@ -1,0 +1,8 @@
+{
+  "source_name": "string",
+  "timestamp_utc": "ISO-8601 string",
+  "headline": "string",
+  "sentiment_score": "bullish | bearish | neutral",
+  "confidence": "float (0.0 - 1.0)",
+  "metadata": "object"
+}

@@ -6,12 +6,11 @@ with fallback activation when primary feeds fail.
 
 from __future__ import annotations
 
-import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
-from agents.base_scraper import BaseScraper, ScraperResult
+from agents.base_scraper import BaseScraper
 from agents.cai_spot_scraper import CAISpotScraper
 from agents.ccfgroup_scraper import CCFGroupScraper
 from agents.ccfi_mediterranean_scraper import CCFIMediterraneanScraper
@@ -24,9 +23,8 @@ from agents.normalizer import Normalizer
 from agents.source_health import SourceHealthEvaluator, get_evaluator
 from models.freight_rate import FreightRate
 from models.macro_feed_record import MacroFeedRecord
-from models.ingestion_source import SourceCategory
 from models.price_history import PriceHistoryRecord, SourceType
-from models.source_health import HealthStatus, SourceHealthRecord
+from models.source_health import HealthStatus
 
 if TYPE_CHECKING:
     from db.repository import Repository
@@ -65,7 +63,7 @@ class IngestionResult:
         self.fallback_used = fallback_used
         self.error = error
         self.details = details or {}
-        self.timestamp = datetime.now(timezone.utc)
+        self.timestamp = datetime.now(UTC)
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
@@ -90,7 +88,7 @@ class DataFetcher:
 
     def __init__(
         self,
-        repository: "Repository",
+        repository: Repository,
         normalizer: Normalizer | None = None,
         health_evaluator: SourceHealthEvaluator | None = None,
     ) -> None:
@@ -119,7 +117,9 @@ class DataFetcher:
 
         self._initialize_scrapers()
 
-    def _register_scraper(self, scraper: BaseScraper, is_primary: bool = True, primary_for: str | None = None) -> None:
+    def _register_scraper(
+        self, scraper: BaseScraper, is_primary: bool = True, primary_for: str | None = None
+    ) -> None:
         """Register a scraper in the orchestrator.
 
         Args:
@@ -150,7 +150,7 @@ class DataFetcher:
         # Fallback sources
         self._register_scraper(CCFGroupScraper(), is_primary=False, primary_for="cai_spot")
         self._register_scraper(Fibre2FashionScraper(), is_primary=False, primary_for="mcx_futures")
-        # Note: DrewryWCIScraper is already registered as primary, 
+        # Note: DrewryWCIScraper is already registered as primary,
         # but it can also be a fallback for ccfi_med
         drewry = self.all_scrapers["drewry_wci"]
         self.fallback_scrapers["ccfi_med"] = drewry
@@ -198,7 +198,7 @@ class DataFetcher:
             fallback_chain = await self.health_evaluator.resolve_fallback_chain(
                 self.repository, source_name
             )
-            
+
             # If no chain in DB, try the hardcoded fallback if it exists
             if not fallback_chain:
                 hardcoded_fallback = self.fallback_scrapers.get(source_name)
@@ -218,7 +218,9 @@ class DataFetcher:
                         fallback_result.fallback_used = True
                         return fallback_result
                 else:
-                    logger.error(f"Fallback source {fallback_name} not found in registered scrapers")
+                    logger.error(
+                        f"Fallback source {fallback_name} not found in registered scrapers"
+                    )
 
         return result
 
@@ -241,7 +243,7 @@ class DataFetcher:
         source_name = scraper.source_name
         is_fallback = primary_source_name is not None
         target_source_name = primary_source_name or source_name
-        last_attempt = datetime.now(timezone.utc)
+        last_attempt = datetime.now(UTC)
         logger.info(f"Starting fetch for source: {source_name}, is_fallback: {is_fallback}")
 
         # 1. Health check before persistence: get current health status of TARGET source
@@ -257,7 +259,9 @@ class DataFetcher:
             if not scrape_result.success:
                 logger.error(f"Fetch failed for {source_name}: {scrape_result.error}")
                 # Increment retry count for the TARGET source
-                self.retry_counts[target_source_name] = self.retry_counts.get(target_source_name, 0) + 1
+                self.retry_counts[target_source_name] = (
+                    self.retry_counts.get(target_source_name, 0) + 1
+                )
                 retry_count = self.retry_counts[target_source_name]
 
                 # Update source health
@@ -277,7 +281,9 @@ class DataFetcher:
                     details={"retry_count": retry_count},
                 )
 
-            logger.info(f"Payload received from {source_name}: {len(scrape_result.records)} records")
+            logger.info(
+                f"Payload received from {source_name}: {len(scrape_result.records)} records"
+            )
 
             # 3. Validate and normalize payloads
             valid_records: list[Any] = []
@@ -302,9 +308,9 @@ class DataFetcher:
                     # Build quality flags
                     # If we just successfully scraped from primary, it's NOT stale anymore
                     # But if we are in fallback, we might still consider the PRIMARY stale
-                    quality_flags = {
-                        "stale": is_currently_stale if is_fallback else False, 
-                        "fallback": is_fallback
+                    quality_flags: dict[str, bool | str] = {
+                        "stale": is_currently_stale if is_fallback else False,
+                        "fallback": is_fallback,
                     }
                     if is_fallback:
                         quality_flags["fallback_source"] = scraper.display_name
@@ -316,15 +322,19 @@ class DataFetcher:
                         record = self.normalizer.normalize_macro(payload, quality_flags)
                     else:
                         record = self.normalizer.normalize(payload, source_type, quality_flags)
-                    
+
                     valid_records.append(record)
                 except Exception as e:
                     failed_payloads.append((payload, str(e)))
 
             if failed_payloads:
-                logger.warning(f"Normalization partially failed for {source_name}: {len(failed_payloads)} failures")
+                logger.warning(
+                    f"Normalization partially failed for {source_name}: {len(failed_payloads)} failures"
+                )
             else:
-                logger.info(f"Normalization success for {source_name}: {len(valid_records)} records")
+                logger.info(
+                    f"Normalization success for {source_name}: {len(valid_records)} records"
+                )
 
             # 4. Persist valid records using appropriate repository methods
             ingested_count = 0
@@ -332,8 +342,7 @@ class DataFetcher:
                 try:
                     # Separate price history records for batch insertion
                     price_history_records = [
-                        r for r in valid_records 
-                        if isinstance(r, PriceHistoryRecord)
+                        r for r in valid_records if isinstance(r, PriceHistoryRecord)
                     ]
                     if price_history_records:
                         await self.repository.insert_price_records_batch(price_history_records)
@@ -348,8 +357,10 @@ class DataFetcher:
                             await self.repository.persist_macro_feed(record)
                             ingested_count += 1
                         # PriceHistoryRecord already handled in batch
-                    
-                    logger.info(f"Persistence outcome for {source_name}: {ingested_count} records saved")
+
+                    logger.info(
+                        f"Persistence outcome for {source_name}: {ingested_count} records saved"
+                    )
                 except Exception as e:
                     logger.error(f"Failed to persist records for {source_name}: {e}")
                     return IngestionResult(
@@ -374,7 +385,7 @@ class DataFetcher:
                 fallback_active=is_fallback,
                 retry_count=0,
             )
-            
+
             logger.info(
                 f"Source health update for {target_source_name}: status={health_record.status}, "
                 f"stale={health_record.status == HealthStatus.STALE}"
@@ -388,9 +399,7 @@ class DataFetcher:
                 fallback_used=is_fallback,
                 details={
                     "scrape_metadata": scrape_result.metadata,
-                    "failed_payloads": [
-                        {"payload": p, "error": e} for p, e in failed_payloads
-                    ],
+                    "failed_payloads": [{"payload": p, "error": e} for p, e in failed_payloads],
                 },
             )
 
@@ -440,7 +449,9 @@ class DataFetcher:
         return {
             "source_name": source_name,
             "recent_record_count": len(recent_records),
-            "latest_record": recent_records[0].timestamp_utc.isoformat() if recent_records else None,
+            "latest_record": recent_records[0].timestamp_utc.isoformat()
+            if recent_records
+            else None,
             "health_status": health_record.status.value if health_record else "unknown",
             "last_success": health_record.last_success_at.isoformat()
             if health_record and health_record.last_success_at
@@ -480,7 +491,159 @@ class DataFetcher:
         }
 
 
-async def run_ingestion(repository: "Repository", sources: list[str] | None = None) -> dict[str, IngestionResult]:
+class SentimentResult:
+    """Result from sentiment scoring of a headline."""
+
+    def __init__(
+        self,
+        success: bool,
+        headline: str = "",
+        source_name: str = "",
+        sentiment_label: str = "",
+        confidence: float = 0.0,
+        polarity: float = 0.0,
+        matched_keywords: list[str] | None = None,
+        error: str | None = None,
+    ) -> None:
+        self.success = success
+        self.headline = headline
+        self.source_name = source_name
+        self.sentiment_label = sentiment_label
+        self.confidence = confidence
+        self.polarity = polarity
+        self.matched_keywords = matched_keywords or []
+        self.error = error
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "success": self.success,
+            "headline": self.headline,
+            "source_name": self.source_name,
+            "sentiment_label": self.sentiment_label,
+            "confidence": self.confidence,
+            "polarity": self.polarity,
+            "matched_keywords": self.matched_keywords,
+            "error": self.error,
+        }
+
+
+async def score_headline_sentiment(
+    repository: Repository,
+    headline: str,
+    source_name: str,
+    timestamp_utc: datetime | None = None,
+) -> SentimentResult:
+    """Score a headline and persist the sentiment event.
+
+    Args:
+        repository: Database repository.
+        headline: The headline text to score.
+        source_name: Source identifier.
+        timestamp_utc: When the headline was published (UTC).
+
+    Returns:
+        SentimentResult with scoring outcome.
+    """
+    from datetime import UTC
+
+    from models.sentiment_event import SentimentEvent, SentimentLabel
+    from nlp.keyword_scorer import KeywordScorer
+
+    if timestamp_utc is None:
+        timestamp_utc = datetime.now(UTC)
+
+    try:
+        scorer = KeywordScorer()
+        scoring_result = scorer.score(headline)
+
+        event = SentimentEvent(
+            headline=headline,
+            source_name=source_name,
+            timestamp_utc=timestamp_utc,
+            sentiment_score=SentimentLabel(scoring_result.label.value),
+            confidence=scoring_result.confidence,
+            metadata={
+                "polarity": scoring_result.polarity,
+                "matched_keywords": scoring_result.matched_keywords,
+            },
+        )
+
+        await repository.insert_sentiment_event(event)
+
+        return SentimentResult(
+            success=True,
+            headline=headline,
+            source_name=source_name,
+            sentiment_label=scoring_result.label.value,
+            confidence=scoring_result.confidence,
+            polarity=scoring_result.polarity,
+            matched_keywords=scoring_result.matched_keywords,
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to score headline: {e}")
+        return SentimentResult(
+            success=False,
+            headline=headline,
+            source_name=source_name,
+            error=str(e),
+        )
+
+
+async def process_market_headlines(
+    repository: Repository,
+    headlines: list[dict[str, Any]],
+) -> list[SentimentResult]:
+    """Process multiple market headlines and score their sentiment.
+
+    Args:
+        repository: Database repository for persistence.
+        headlines: List of headline dicts with 'text', 'source', 'timestamp' keys.
+
+    Returns:
+        List of SentimentResult for each headline.
+    """
+    results = []
+    for hl in headlines:
+        headline_text = hl.get("text", "")
+        source = hl.get("source", "unknown")
+        raw_timestamp = hl.get("timestamp")
+
+        if raw_timestamp:
+            if isinstance(raw_timestamp, str):
+                timestamp = datetime.fromisoformat(raw_timestamp.replace("Z", "+00:00"))
+            else:
+                if raw_timestamp.tzinfo is None:
+                    timestamp = raw_timestamp.replace(tzinfo=UTC)
+                else:
+                    timestamp = raw_timestamp
+        else:
+            timestamp = datetime.now(UTC)
+
+        if not headline_text:
+            results.append(
+                SentimentResult(
+                    success=False,
+                    source_name=source,
+                    error="Empty headline text",
+                )
+            )
+            continue
+
+        result = await score_headline_sentiment(
+            repository,
+            headline_text,
+            source,
+            timestamp,
+        )
+        results.append(result)
+
+    return results
+
+
+async def run_ingestion(
+    repository: Repository, sources: list[str] | None = None
+) -> dict[str, IngestionResult]:
     """Run the ingestion pipeline for specified sources.
 
     Args:

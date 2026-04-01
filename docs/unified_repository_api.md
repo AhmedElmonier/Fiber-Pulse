@@ -79,3 +79,125 @@ results = await orchestrator.run_ingestion(['ccfi_med', 'fx_usd_inr', 'cai_spot'
 
 print(f"Ingested {results['summary']['total_records_ingested']} records.")
 ```
+
+## Sentiment Events Query Interface
+
+### `get_sentiment_events`
+
+Queries market headline sentiment events.
+
+**Arguments:**
+- `source_name` (str): Filter by source identifier.
+- `start_time` (datetime): Return events after this time.
+- `end_time` (datetime): Return events before this time.
+- `sentiment_label` (str): Filter by sentiment (`'bullish'`, `'bearish'`, `'neutral'`).
+- `limit` (int): Maximum number of records to return.
+
+**Example:**
+```python
+# Get latest bullish sentiment events
+bullish_events = await repo.get_sentiment_events(
+    sentiment_label='bullish',
+    limit=10
+)
+
+for e in bullish_events:
+    print(f"{e.headline}: {e.sentiment_score} (confidence: {e.confidence})")
+```
+
+### `insert_sentiment_event`
+
+Persists a sentiment-scored market headline.
+
+**Example:**
+```python
+from models.sentiment_event import SentimentEvent, SentimentLabel
+from datetime import datetime, timezone
+
+event = SentimentEvent(
+    headline="Cotton prices surge on strong demand",
+    source_name="reuters",
+    timestamp_utc=datetime.now(timezone.utc),
+    sentiment_score=SentimentLabel.BULLISH,
+    confidence=0.85,
+    metadata={"matched_keywords": ["surge", "strong", "demand"]}
+)
+
+await repo.insert_sentiment_event(event)
+```
+
+## Forecasts Query Interface
+
+### `get_forecasts`
+
+Queries generated price forecasts with confidence intervals.
+
+**Arguments:**
+- `target_source` (str): Filter by target source name.
+- `start_time` (datetime): Return forecasts generated after this time.
+- `end_time` (datetime): Return forecasts generated before this time.
+- `limit` (int): Maximum number of records to return.
+
+**Example:**
+```python
+# Get latest forecasts for CAI spot
+forecasts = await repo.get_forecasts(
+    target_source='cai_spot',
+    limit=5
+)
+
+for f in forecasts:
+    print(f"{f.target_source}: {f.predicted_value:.2f} "
+          f"[{f.lower_bound:.2f}, {f.upper_bound:.2f}] "
+          f"(decayed: {f.is_decayed})")
+```
+
+### `insert_forecast`
+
+Persists a price forecast with confidence intervals.
+
+**Example:**
+```python
+from models.forecast import Forecast
+from datetime import datetime, timedelta, timezone
+
+now = datetime.now(timezone.utc)
+target_ts = now + timedelta(hours=24)
+
+forecast = Forecast(
+    target_source="cai_spot",
+    timestamp_utc=now,
+    target_timestamp_utc=target_ts,
+    horizon_hours=24,
+    predicted_value=85.50,
+    lower_bound=80.00,
+    upper_bound=91.00,
+    confidence_level=0.95,
+    is_decayed=False
+)
+
+await repo.insert_forecast(forecast)
+```
+
+## Sentiment & Forecast Orchestration
+
+To generate forecasts and process sentiment in a pipeline:
+
+```python
+from agents.forecast import generate_forecast
+from agents.data_fetcher import process_market_headlines
+from nlp.keyword_scorer import KeywordScorer
+
+# Generate daily forecast
+forecast = await generate_forecast(repo, target_source="cai_spot")
+
+# Process market headlines for sentiment
+headlines = [
+    {"text": "Cotton surge on strong demand", "source": "reuters"},
+    {"text": "Prices drop on weak demand", "source": "ap"}
+]
+sentiment_results = await process_market_headlines(repo, headlines)
+
+print(f"Forecast: {forecast.predicted_value}")
+print(f"Sentiment events: {len(sentiment_results)} scored")
+```

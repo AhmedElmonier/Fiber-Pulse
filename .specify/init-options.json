@@ -1,5 +1,5 @@
 {
-  "ai": "gemini",
+  "ai": "opencode",
   "ai_commands_dir": null,
   "ai_skills": false,
   "branch_numbering": "sequential",
